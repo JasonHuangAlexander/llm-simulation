@@ -1,0 +1,109 @@
+body {
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow: hidden; 
+}
+
+.scroll-container {
+  display: flex;
+  flex-direction: row;
+  width: auto;
+  height: 100vh;
+  scroll-snap-type: x mandatory; 
+  scroll-behavior: smooth;
+  overflow-x: scroll; /* Enable horizontal scrolling */
+  gap: 10px; /* This creates the padding between sections and arrows */
+  padding: 0 20px;
+}
+
+.arrow {
+  display: flex;
+  justify-content: center;
+  align-items: center; /* Center arrow vertically */
+  font-size: 3vw;
+  width: clamp(30px, 3vw, 60px); 
+  height: 100vh; 
+  color: #ccc;
+  flex-shrink: 0; /* Prevent arrows from shrinking */
+  scroll-snap-align: center; 
+}
+
+.section {
+  flex-shrink: 0; 
+  width: max-content; 
+  max-width: 80vw; 
+  height: 100vh;
+  scroll-snap-align: start; 
+  box-sizing: border-box;
+  padding: 12px; 
+  display: flex; 
+  justify-content: center; /* Center content horizontally within the section */
+  align-items: center; /* Center content vertically within the section */
+}
+
+.column {
+  flex: 1 1 0%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0px;
+}
+
+.page-1,
+.page-2,
+.page-3 {
+  display: flex;
+  gap: 20px; /* Gap between columns in page-1, or between internal elements in page-2/3 */
+  border: 1.5px solid #ccc;
+  border-radius: 12px;
+  padding: 16px; 
+  background-color: #f9f9f9;
+  font-size: 0.75rem;
+  box-sizing: border-box;
+}
+
+.page-1 {
+  flex-direction: row;
+  width: 50vw; 
+}
+
+.page-2 {
+  flex-direction: column;
+  width: 20vw;
+}
+
+.page-3 {
+  width: 60vw; 
+}
+
+
+input, textarea, button {
+  font-size: 0.7rem;
+  padding: 6px;
+  width: 100%;
+  margin-top: 0%;
+  margin-bottom: 6px;
+  box-sizing: border-box;
+}
+
+textarea {
+  resize: none;
+}
+
+button {
+  margin-top: 12px;
+  padding: 6px 12px;
+}
+
+
+small-button {
+  margin-top: 12px;
+  padding: 6px 12px;
+  font-size: 0.7rem;
+  width: 10%;
+  margin-bottom: 6px;
+  box-sizing: border-box;
+  border: 1px solid #ada8a8;
+  text-align: center;
+}
