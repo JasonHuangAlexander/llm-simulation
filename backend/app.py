@@ -10,11 +10,20 @@ from datetime import datetime
 from dotenv import load_dotenv
 import traceback
 import threading
+from sqlalchemy import create_engine, text
+
 
 # Load environment variables
 load_dotenv()
 client = AsyncOpenAI()  # Async client
 print("loaded API key")
+
+# Build the database URL from environment variables
+db_url = (
+    f"postgresql+psycopg2://{os.environ['DB_USER']}:{os.environ['DB_PASSWORD']}"
+    f"@{os.environ['DB_HOST']}:{os.environ['DB_PORT']}/{os.environ['DB_NAME']}"
+)
+engine = create_engine(db_url)
 
 app = Flask(__name__)
 CORS(app)
@@ -177,6 +186,7 @@ async def generate_one(sim_id, attribute, context, scenario, demographicGroup, a
         persona = {"name": name, "description": description}
         result = {"decision": decision, "rationale": rationale}
 
+
         log_entry = {
             "timestamp": datetime.now().isoformat(),
             "scenario": scenario,
@@ -188,9 +198,22 @@ async def generate_one(sim_id, attribute, context, scenario, demographicGroup, a
             "result": result,
             "raw_response": json.dumps(parsed_decision)
         }
-        async with aiofiles.open("simulation_log.jsonl", "a") as f:
-            await f.write(json.dumps(log_entry) + "\n")
-            print(f"Wrote log for '{attribute}' #{index}")
+        # Save log_entry to PostgreSQL
+        try:
+            with engine.connect() as conn:
+                conn.execute(
+                    text("""
+                        INSERT INTO simulation_history (timestamp, data)
+                        VALUES (:timestamp, :data)
+                    """),
+                    {
+                        "timestamp": log_entry["timestamp"],
+                        "data": json.dumps(log_entry)
+                    }
+                )
+            print(f"DB log saved for '{attribute}' #{index}")
+        except Exception as db_exc:
+            print(f"DB log failed for '{attribute}' #{index}: {db_exc}")
 
         if sim_id in simulation_progress:
             simulation_progress[sim_id]['completed'] += 1
@@ -243,9 +266,22 @@ def update_persona():
     return jsonify({"status": "success", "updated": update_entry})
 
 async def log_update_entry(entry):
-    async with aiofiles.open("updated_personas.jsonl", "a") as f:
-        await f.write(json.dumps(entry) + "\n")
-        print(f"✔ Logged update for persona {entry['id']}")
+    # Save update entry to PostgreSQL (optional: create a table for updates)
+    try:
+        with engine.connect() as conn:
+            conn.execute(
+                text("""
+                    INSERT INTO updated_personas (timestamp, data)
+                    VALUES (:timestamp, :data)
+                """),
+                {
+                    "timestamp": entry["timestamp"],
+                    "data": json.dumps(entry)
+                }
+            )
+        print(f"✔ DB logged update for persona {entry['id']}")
+    except Exception as db_exc:
+        print(f"DB log failed for persona {entry['id']}: {db_exc}")
 
 
 if __name__ == '__main__':
