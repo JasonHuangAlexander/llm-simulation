@@ -28,6 +28,29 @@ engine = create_engine(db_url)
 app = Flask(__name__)
 CORS(app)
 
+
+@app.route('/init_db', methods=['POST'])
+def init_db():
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS simulation_history (
+                    id SERIAL PRIMARY KEY,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    data JSONB
+                );
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS updated_personas (
+                    id SERIAL PRIMARY KEY,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    data JSONB
+                );
+            """))
+        return jsonify({"status": "success", "message": "Tables created or already exist."})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 # Dictionary to store progress for each simulation ID
 simulation_progress = {}
 
