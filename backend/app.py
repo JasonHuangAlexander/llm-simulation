@@ -1,12 +1,3 @@
-@app.route('/view_all_simulation_history', methods=['GET'])
-def view_all_simulation_history():
-    try:
-        with engine.connect() as conn:
-            result = conn.execute(text("SELECT * FROM simulation_history ORDER BY id ASC"))
-            rows = [dict(row) for row in result]
-        return jsonify(rows)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 import uuid
 from flask import Flask, request, jsonify, abort
 from flask_cors import CORS
@@ -36,6 +27,16 @@ engine = create_engine(db_url)
 
 app = Flask(__name__)
 CORS(app)
+
+@app.route('/view_all_simulation_history', methods=['GET'])
+def view_all_simulation_history():
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT * FROM simulation_history ORDER BY id ASC"))
+            rows = [dict(row) for row in result]
+        return jsonify(rows)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # Dictionary to store progress for each simulation ID
 simulation_progress = {}
