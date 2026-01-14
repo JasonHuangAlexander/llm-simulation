@@ -391,7 +391,7 @@ export default function App() {
   };
 
   const runSimulation = async () => {
-    // Generate personas many times and compute distributions in parallel
+    // Generate 50 decisions per persona using quick endpoints and compute distributions
     const personas = demographics.Personas || [];
     if (!personas.length) return;
 
@@ -406,77 +406,108 @@ export default function App() {
     setView('run');
 
     try {
-      // Prepare aggregation structures
-      const countsByPersona = {};
-      const lastPersonaObj = {};
-      personas.forEach(p => { countsByPersona[p] = Object.fromEntries(actionsList.map(a => [a, 0])); lastPersonaObj[p] = { name: p, description: '' }; });
-
-      const totalTasks = personas.length * 50;
-      // Both persona generation and decision generation will happen per-task; show totals accordingly
+      const summary = [];
+      // initialize persona progress: we will generate 50 persona variants per base persona
+      const perPersonaVariants = 50;
       setLoadingStage('personas');
-      setPersonaProgress({ completed: 0, total: totalTasks });
-      setDecisionProgress({ completed: 0, total: totalTasks });
+      setPersonaProgress({ completed: 0, total: personas.length * perPersonaVariants });
+      // decision progress will match the same total (one decision per generated persona variant)
+      setDecisionProgress({ completed: 0, total: personas.length * perPersonaVariants });
 
-      // Build tasks: for each persona, create 50 tasks
-      const tasks = [];
+      // First: generate all persona variants (parallelized)
+      const personaVariants = []; // { base: p, personaObj }
+      const variantTasks = [];
       for (const p of personas) {
-        for (let i = 0; i < 50; i++) tasks.push({ personaKey: p });
+        for (let v = 0; v < perPersonaVariants; v++) variantTasks.push({ base: p });
       }
 
-      // Run all tasks in parallel (each task: generate persona, then generate one decision)
-      await Promise.allSettled(tasks.map(async (t) => {
-        const p = t.personaKey;
-        // generate persona
+      // small concurrency runner
+      const runParallel = async (items, worker, concurrency = 6) => {
+        let idx = 0;
+        const results = [];
+        const runners = Array.from({ length: concurrency }).map(async () => {
+          while (true) {
+            const i = idx++;
+            if (i >= items.length) break;
+            try {
+              // worker may return a value
+              const r = await worker(items[i], i);
+              results.push(r);
+            } catch (e) {
+              console.warn('parallel worker error', e);
+            }
+          }
+        });
+        await Promise.all(runners);
+        return results;
+      };
+
+      const concurrency = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) ? Math.max(4, navigator.hardwareConcurrency * 2) : 8;
+      await runParallel(variantTasks, async (task) => {
+        const p = task.base;
         let personaObj = { name: p, description: '' };
         try {
           const pres = await fetch(`${BACKEND_ORIGIN}/generate_persona_quick`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ attribute: p, demographicGroup: 'Personas', context: contextText, scenario: scenarioText, actionSpace: actionsText, persona: p })
           });
-          if (pres.ok) personaObj = await pres.json();
+          if (pres && pres.ok) {
+            const json = await pres.json();
+            personaObj = json;
+          }
         } catch (e) {
           console.warn('persona quick failed for', p, e);
         } finally {
-          // update persona progress per generated persona instance
           setPersonaProgress(prev => ({ ...prev, completed: (prev.completed || 0) + 1 }));
         }
-        // keep last persona obj for display
-        lastPersonaObj[p] = personaObj;
+        personaVariants.push({ base: p, personaObj });
+      }, 8);
 
-        // mark that decisions stage is in-flight
-        setLoadingStage('decisions');
+      // Expose generated persona variants briefly in the UI
+      setGeneratedPersonas(personaVariants.map(pv => ({ persona: pv.base, personaObj: pv.personaObj })));
 
-        // generate one decision for this persona-instance
+      // Prepare counts aggregated by base persona
+      const countsByBase = {};
+      for (const p of personas) {
+        countsByBase[p] = {};
+        for (const a of actionsList) countsByBase[p][a] = 0;
+      }
+
+      // Second: generate one decision per generated persona variant (parallelized)
+      setLoadingStage('decisions');
+      await runParallel(personaVariants, async (pv) => {
+        const base = pv.base;
+        const personaObj = pv.personaObj || { name: base, description: '' };
         try {
           const dres = await fetch(`${BACKEND_ORIGIN}/generate_decision_quick`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: personaObj.name, description: personaObj.description, scenario: scenarioText, context: contextText, actionSpace: actionsText, demographicGroup: 'Personas', attribute: p })
+            body: JSON.stringify({ name: personaObj.name, description: personaObj.description, scenario: scenarioText, context: contextText, actionSpace: actionsText, demographicGroup: 'Personas', attribute: base })
           });
           if (dres && dres.ok) {
             const ddata = await dres.json();
             const decision = (ddata.decision || '').trim();
             const matched = actionsList.find(act => act.toLowerCase() === decision.toLowerCase()) || null;
             if (matched) {
-              countsByPersona[p][matched] = (countsByPersona[p][matched] || 0) + 1;
+              // increment under base persona
+              countsByBase[base][matched] = (countsByBase[base][matched] || 0) + 1;
             }
           }
         } catch (e) {
           console.warn('decision quick error', e);
         } finally {
-          // update decision progress per generated decision
           setDecisionProgress(prev => ({ ...prev, completed: (prev.completed || 0) + 1 }));
         }
-      }));
+      }, concurrency);
+
+      // Build summary from aggregated countsByBase
+      for (const p of personas) {
+        const counts = countsByBase[p];
+        const total = Object.values(counts).reduce((s, v) => s + v, 0);
+        summary.push({ persona: p, personaObj: { name: p }, counts, total, percentages: Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, total ? (v / total) : 0])) });
+      }
 
       // finished loading
       setLoadingStage(null);
-
-      // build summary from countsByPersona
-      const summary = personas.map(p => {
-        const counts = countsByPersona[p] || {};
-        const total = Object.values(counts).reduce((s, v) => s + v, 0);
-        return { persona: p, personaObj: lastPersonaObj[p], counts, total, percentages: Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, total ? (v / total) : 0])) };
-      });
 
       // compute significance: pick action with max variance across personas, test most-different pair with two-proportion z-test
       const actionVars = Object.keys(actionsList).length ? actionsList : Object.keys(summary[0].counts || {});
@@ -845,8 +876,8 @@ export default function App() {
                 <div style={{marginTop: 20}}>
                   <h3>Generated Personas</h3>
                   <div style={{display: 'flex', gap: 12, flexWrap: 'wrap'}}>
-                    {generatedPersonas.map((r) => (
-                      <div key={r.persona} style={{border: '1px solid #e6e6e6', padding: 12, borderRadius: 8, minWidth: 260}}>
+                    {generatedPersonas.map((r, gi) => (
+                      <div key={`${r.persona}_${gi}`} style={{border: '1px solid #e6e6e6', padding: 12, borderRadius: 8, minWidth: 260}}>
                         <div style={{fontWeight: 700, marginBottom: 8}}>{r.persona}</div>
                         {r.error ? (
                           <div style={{color: 'red'}}>{r.error}</div>
